@@ -82,14 +82,16 @@ class Server {
 
   // Process a serialized LinPir request.
   // This variant requires the server and the database are preprocessed.
-  absl::StatusOr<LinPirResponse> HandleRequest(
+  //absl::StatusOr<LinPirResponse> HandleRequest(
+    absl::StatusOr<LinPirOnlineResponse> HandleRequest(
       const LinPirRequest& request) const {
     return HandleRequest(request.ct_query_b(), request.gk_key_bs());
   }
 
   // Process a LinPir request represented by individual protos.
   // This variant requires the server and the database are preprocessed.
-  absl::StatusOr<LinPirResponse> HandleRequest(
+  //absl::StatusOr<LinPirResponse> HandleRequest(
+   absl::StatusOr<LinPirOnlineResponse> HandleRequest(
       const rlwe::SerializedRnsPolynomial& proto_ct_query_b,
       const google::protobuf::RepeatedPtrField<rlwe::SerializedRnsPolynomial>&
           proto_gk_key_bs) const;
@@ -97,9 +99,10 @@ class Server {
   // Process a LinPir request represented by a ciphertext encrypting the vector
   // and a Galois automorphism key.
   // This variant does not require preprocessing.
-  absl::StatusOr<LinPirResponse> HandleRequest(const RnsCiphertext& ct_query,
-                                               const RnsGaloisKey& gk) const;
-
+  // absl::StatusOr<LinPirResponse> HandleRequest(const RnsCiphertext& ct_query,
+  //                                              const RnsGaloisKey& gk) const;
+    absl::StatusOr<LinPirOnlineResponse> HandleRequest(
+     const RnsCiphertext& ct_query, const RnsGaloisKey& gk) const;
 // Returns the "a" components of the LinPir response ciphertexts.
   absl::StatusOr<LinPirResponse> GetResponsePads() const;
 

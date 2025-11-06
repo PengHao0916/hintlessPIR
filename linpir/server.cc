@@ -177,7 +177,8 @@ absl::Status Server<RlweInteger>::Preprocess() {
 }
 
 template <typename RlweInteger>
-absl::StatusOr<LinPirResponse> Server<RlweInteger>::HandleRequest(
+//absl::StatusOr<LinPirResponse> Server<RlweInteger>::HandleRequest(
+  absl::StatusOr<LinPirOnlineResponse> Server<RlweInteger>::HandleRequest(
     const RnsCiphertext& ct_query, const RnsGaloisKey& gk) const {
   // Compute all rotations of the query vector.
   int num_rotations = params_.rows_per_block / 2;
@@ -191,17 +192,42 @@ absl::StatusOr<LinPirResponse> Server<RlweInteger>::HandleRequest(
     ct_rotated_queries.push_back(std::move(ct_rot));
   }
   // Compute inner products with the databases and serialize.
-  LinPirResponse response;
+  //LinPirResponse response;
+  LinPirOnlineResponse response;
   for (auto const& database : databases_) {
-    LinPirResponse::EncryptedInnerProduct inner_product;
+    //LinPirResponse::EncryptedInnerProduct inner_product;
+    LinPirOnlineResponse::EncryptedInnerProduct inner_product;
     RLWE_ASSIGN_OR_RETURN(std::vector<RnsCiphertext> ct_blocks,
                           database->InnerProductWith(ct_rotated_queries));
     for (auto const& ct : ct_blocks) {
       //RLWE_ASSIGN_OR_RETURN(*inner_product.add_ct_blocks(), ct.Serialize());
       //RLWE_ASSIGN_OR_RETURN(*inner_product.add_ct_b_blocks(), ct.Serialize());
-      RLWE_ASSIGN_OR_RETURN(RnsPolynomial ct_b, ct.Component(0));
-      RLWE_ASSIGN_OR_RETURN(*inner_product.add_ct_b_blocks(),
-                        ct_b.Serialize(rns_moduli_));
+      // 
+     RLWE_ASSIGN_OR_RETURN(RnsPolynomial ct_b, ct.Component(0));
+      // 1. 转换到系数域 (iNTT)
+      RLWE_RETURN_IF_ERROR(ct_b.ConvertToCoeffForm(rns_moduli_));
+
+      // 2. 序列化并量化 (Uint64 -> uint32)
+      auto* serialized_quantized_poly = inner_product.add_ct_b_blocks();
+      const auto& coeffs = ct_b.Coeffs();
+      // for (const auto& poly_component : ct_b.Coeffs()) {
+      //   auto* quantized_component = serialized_quantized_poly->add_components();
+      //   quantized_component->mutable_coeffs()->Reserve(poly_component.size());
+      //   for (const auto& coeff : poly_component) {
+      //     // 3. 这是“有损”压缩步骤
+      //     quantized_component->add_coeffs(
+      //         static_cast<uint32_t>(coeff.ExportInt(rns_moduli_[0]->ModParams())));
+      //   }
+      // }
+      for (size_t i = 0; i < coeffs.size(); ++i) { // <--- 修复点 2
+        auto* quantized_component = serialized_quantized_poly->add_components();
+        quantized_component->mutable_coeffs()->Reserve(coeffs[i].size());
+        for (const auto& coeff : coeffs[i]) { // <--- 修复点 3
+         // 3. 这是“有损”压缩步骤
+          quantized_component->add_coeffs(static_cast<uint32_t>(
+              coeff.ExportInt(rns_moduli_[i]->ModParams()))); // <--- 修复点 4 (使用索引 i)
+        }
+      }
     }
     *response.add_ct_inner_products() = std::move(inner_product);
   }
@@ -209,7 +235,8 @@ absl::StatusOr<LinPirResponse> Server<RlweInteger>::HandleRequest(
 }
 
 template <typename RlweInteger>
-absl::StatusOr<LinPirResponse> Server<RlweInteger>::HandleRequest(
+//absl::StatusOr<LinPirResponse> Server<RlweInteger>::HandleRequest(
+  absl::StatusOr<LinPirOnlineResponse> Server<RlweInteger>::HandleRequest(
     const ::rlwe::SerializedRnsPolynomial& proto_ct_query_b,
     const google::protobuf::RepeatedPtrField<::rlwe::SerializedRnsPolynomial>&
         proto_gk_key_bs) const {
@@ -251,21 +278,48 @@ absl::StatusOr<LinPirResponse> Server<RlweInteger>::HandleRequest(
   }
 
   // Compute inner products with the databases and serialize them.
-  LinPirResponse response;
+  //LinPirResponse response;
+  LinPirOnlineResponse response;
   response.mutable_ct_inner_products()->Reserve(databases_.size());
   for (auto const& database : databases_) {
     RLWE_ASSIGN_OR_RETURN(
         std::vector<RnsCiphertext> ct_blocks,
         database->InnerProductWithPreprocessedPads(ct_rotated_queries));
-    LinPirResponse::EncryptedInnerProduct inner_product;
-    //inner_product.mutable_ct_blocks()->Reserve(ct_blocks.size());
-    inner_product.mutable_ct_b_blocks()->Reserve(ct_blocks.size());
+    // LinPirResponse::EncryptedInnerProduct inner_product;
+    // //inner_product.mutable_ct_blocks()->Reserve(ct_blocks.size());
+    // inner_product.mutable_ct_b_blocks()->Reserve(ct_blocks.size());
+    LinPirOnlineResponse::EncryptedInnerProduct inner_product;
     for (auto const& ct : ct_blocks) {
       //RLWE_ASSIGN_OR_RETURN(*inner_product.add_ct_blocks(), ct.Serialize());
       //RLWE_ASSIGN_OR_RETURN(*inner_product.add_ct_b_blocks(), ct.Serialize());
       RLWE_ASSIGN_OR_RETURN(RnsPolynomial ct_b, ct.Component(0));
-      RLWE_ASSIGN_OR_RETURN(*inner_product.add_ct_b_blocks(),
-                        ct_b.Serialize(rns_moduli_));
+      // RLWE_ASSIGN_OR_RETURN(*inner_product.add_ct_b_blocks(),
+      //                   ct_b.Serialize(rns_moduli_));
+      // 1. 转换到系数域 (iNTT)
+      RLWE_RETURN_IF_ERROR(ct_b.ConvertToCoeffForm(rns_moduli_));
+
+      // 2. 序列化并量化 (Uint64 -> uint32)
+      auto* serialized_quantized_poly = inner_product.add_ct_b_blocks();
+      const auto& coeffs = ct_b.Coeffs();
+      // for (size_t i = 0; i < ct_b.NumModuli(); ++i) {
+      //   auto* quantized_component = serialized_quantized_poly->add_components();
+      //  RLWE_ASSIGN_OR_RETURN(auto coeffs, ct_b.Coeffs(i));
+      //   quantized_component->mutable_coeffs()->Reserve(coeffs.size());
+      //   for (const auto& coeff : coeffs) {
+      //     // 3. 这是“有损”压缩步骤
+      //     quantized_component->add_coeffs(
+      //         static_cast<uint32_t>(coeff.ExportInt(rns_moduli_[i]->ModParams())));
+      //   }
+      // }
+      for (size_t i = 0; i < coeffs.size(); ++i) { // <--- 修复点 2
+        auto* quantized_component = serialized_quantized_poly->add_components();
+        quantized_component->mutable_coeffs()->Reserve(coeffs[i].size());
+        for (const auto& coeff : coeffs[i]) { // <--- 修复点 3
+          // 3. 这是“有损”压缩步骤
+          quantized_component->add_coeffs(static_cast<uint32_t>(
+              coeff.ExportInt(rns_moduli_[i]->ModParams()))); // <--- 修复点 4 (使用索引 i)
+        }
+      }
     }
     *response.add_ct_inner_products() = std::move(inner_product);
   }

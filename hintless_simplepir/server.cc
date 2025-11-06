@@ -31,6 +31,7 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "hintless_simplepir/database_hwy.h"
+#include "linpir/serialization.pb.h"
 #include "hintless_simplepir/parameters.h"
 #include "hintless_simplepir/serialization.pb.h"
 #include "hintless_simplepir/utils.h"
@@ -254,10 +255,18 @@ absl::StatusOr<HintlessPirResponse> Server::HandleRequest(
   }
   
   for (int k = 0; k < num_linpir_requests; ++k) {
-    RLWE_ASSIGN_OR_RETURN(LinPirResponse linpir_response,
+    //RLWE_ASSIGN_OR_RETURN(LinPirResponse linpir_response,
+    RLWE_ASSIGN_OR_RETURN(LinPirOnlineResponse online_response,
                           linpir_servers_[k]->HandleRequest(
                               request.linpir_ct_bs(k), request.linpir_gk_bs()));
-    *response.add_linpir_responses() = std::move(linpir_response);
+    //*response.add_linpir_responses() = std::move(linpir_response);
+    
+        // 手动复制 ct_b_blocks 字段
+        // new_inner_product->mutable_ct_b_blocks()->CopyFrom(
+        //     old_inner_product.ct_b_blocks());
+        *response.add_linpir_responses() = std::move(online_response);
+    }
+      
   }
   return response;
 }

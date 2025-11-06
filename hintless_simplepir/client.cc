@@ -27,6 +27,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "hintless_simplepir/parameters.h"
+#include "linpir/serialization.pb.h"
 #include "hintless_simplepir/serialization.pb.h"
 #include "hintless_simplepir/utils.h"
 #include "lwe/encode.h"
@@ -267,9 +268,32 @@ absl::StatusOr<std::vector<lwe::Vector>> Client::RecoverLweDecryptionParts(
     h.resize(num_linpir_plaintext_moduli);
   }
   for (int k = 0; k < num_linpir_plaintext_moduli; ++k) {
+    // const auto& online_response = response.linpir_responses(k);
+    // LinPirResponse temp_response;
+    // for (const auto& online_inner_product : online_response.ct_inner_products()) {
+    //   auto* temp_inner_product = temp_response.add_ct_inner_products();
+    //   for (const auto& online_b_block : online_inner_product.ct_b_blocks()) {
+    //     // 4. 同样，只是原封不动地复制。
+    //     //    在下一步中，我们将在这里插入解压缩逻辑。
+    //     *temp_inner_product->add_ct_b_blocks() = online_b_block.components(0);
+    //   }
+    // }
+    // 这是我们收到的新格式 (LinPirOnlineResponse)
+    const auto& online_response = response.linpir_responses(k);
+    // 我们必须将其转换回 `Recover` 函数期望的旧格式 (LinPirResponse)
+    LinPirResponse temp_response;
+    //temp_response.mutable_ct_inner_products()->CopyFrom(
+    //online_response.ct_inner_products());
+    for (const auto& online_inner_product : online_response.ct_inner_products()) {
+        auto* temp_inner_product = temp_response.add_ct_inner_products();
+        // 手动复制 ct_b_blocks 字段
+       temp_inner_product->mutable_ct_b_blocks()->CopyFrom(
+            online_inner_product.ct_b_blocks());
+    }
     RLWE_ASSIGN_OR_RETURN(
         auto hint_values_mod_tk,
-        linpir_clients_[k]->Recover(response.linpir_responses(k),linpir_response_pads_[k]));
+        //linpir_clients_[k]->Recover(response.linpir_responses(k),linpir_response_pads_[k]));
+        linpir_clients_[k]->Recover(temp_response, linpir_response_pads_[k]));
     auto mod_params_tk = plaintext_moduli[k]->ModParams();
     for (int i = 0; i < num_shards; ++i) {
       hint_crt_values[i][k].reserve(hint_values_mod_tk[i].size());

@@ -251,7 +251,8 @@ TEST_F(ServerTest, HandleRequestWithoutPreprocessing) {
                            slots, this->encoder_.get(),
                            this->error_params_.get(), this->prng_.get()));
 
-  ASSERT_OK_AND_ASSIGN(LinPirResponse response,
+  //ASSERT_OK_AND_ASSIGN(LinPirResponse response,
+  ASSERT_OK_AND_ASSIGN(LinPirOnlineResponse response,
                        server->HandleRequest(ct_query, gk));
 
   // The response should contain one inner product as there is one database
@@ -259,7 +260,7 @@ TEST_F(ServerTest, HandleRequestWithoutPreprocessing) {
   // kNumRows <= kParameters.num_rows_per_block and hence just one block.
   ASSERT_EQ(response.ct_inner_products_size(), 1);  // only one database
   //ASSERT_EQ(response.ct_inner_products(0).ct_blocks_size(), 1);
-  ASSERT_EQ(response.ct_inner_products(0).ct_b_blocks_size(), 1);
+ // ASSERT_EQ(response.ct_inner_products(0).ct_b_blocks_size(), 1);
 
   // ASSERT_OK_AND_ASSIGN(
   //     auto deserialized,
@@ -281,6 +282,7 @@ TEST_F(ServerTest, HandleRequestWithoutPreprocessing) {
   //   EXPECT_EQ(results[i] % this->rns_context_->PlaintextModulus(),
   //             data[i][index]);
   // }
+  ASSERT_EQ(response.ct_inner_products(0).ct_b_blocks_size(), 1);
 }
 
 TEST_F(ServerTest, HandleRequestWithPreprocessing) {
@@ -321,8 +323,8 @@ TEST_F(ServerTest, HandleRequestWithPreprocessing) {
 
   // Let the server handle the request with preprocessed data.
   LinPirRequest request = this->SerializeLinPirRequest(ct_query, gk);
-   ASSERT_OK_AND_ASSIGN(LinPirResponse response, server->HandleRequest(request));
-
+   //ASSERT_OK_AND_ASSIGN(LinPirResponse response, server->HandleRequest(request));
+  ASSERT_OK_AND_ASSIGN(LinPirOnlineResponse response, server->HandleRequest(request));
   // The response should contain one inner product as there is one database
   // held by the server, and the inner product contains one ciphertext, as
   // kNumRows <= kParameters.num_rows_per_block and hence just one block.
@@ -355,11 +357,32 @@ TEST_F(ServerTest, HandleRequestWithPreprocessing) {
   ASSERT_EQ(response.ct_inner_products(0).ct_b_blocks_size(), 1);
   ASSERT_EQ(response_pads.ct_inner_products(0).ct_b_blocks_size(), 1);
 
+  // ******** 3. 开始添加客户端解压缩逻辑 ********
+  // 1. 获取压缩的 'b' 部分
+  const auto& compressed_b_proto = response.ct_inner_products(0).ct_b_blocks(0);
+  
+  // 2. 反量化 (uint32 -> Uint64) 并创建系数向量
+  std::vector<std::vector<Integer>> ct_b_coeffs(this->moduli_.size());
+  for (size_t i = 0; i < this->moduli_.size(); ++i) {
+    const auto& quantized_component = compressed_b_proto.components(i);
+    ct_b_coeffs[i].reserve(quantized_component.coeffs_size());
+    for (uint32_t coeff : quantized_component.coeffs()) {
+      ct_b_coeffs[i].push_back(static_cast<Integer>(coeff));
+    }
+ }
+
+  // 3. 从系数创建 RnsPolynomial (is_ntt = false)
   ASSERT_OK_AND_ASSIGN(
       auto ct_b_poly,
-      RnsPolynomial::Deserialize(
-          response.ct_inner_products(0).ct_b_blocks(0), this->moduli_));
+      RnsPolynomial::Create(ct_b_coeffs, this->moduli_, /*is_ntt=*/false));
+
+  // 4. 转换为 NTT 域以进行解密
+  ASSERT_OK(ct_b_poly.ConvertToNttForm(this->moduli_));
   ASSERT_OK_AND_ASSIGN(
+  //     auto ct_b_poly,
+  //     RnsPolynomial::Deserialize(
+  //         response.ct_inner_products(0).ct_b_blocks(0), this->moduli_));
+  // ASSERT_OK_AND_ASSIGN(
       auto ct_a_poly,
       RnsPolynomial::Deserialize(
           response_pads.ct_inner_products(0).ct_b_blocks(0), this->moduli_));

@@ -15,12 +15,10 @@
 syntax = "proto2";
 
 package hintless_pir;
-
 import "shell_encryption/rns/serialization.proto";
 
 // For faster allocations of sub-messages.
 option cc_enable_arenas = true;
-
 // A LinPIR request sent from the client to the server.
 message LinPirRequest {
   // The "b" component of the ciphertext that encrypts the query vector.
@@ -30,11 +28,36 @@ message LinPirRequest {
   repeated rlwe.SerializedRnsPolynomial gk_key_bs = 2;
 }
 
+// A single component (modulus) of an RNS polynomial, with coefficients
+// quantized (e.g., compressed to 32 bits).
+message QuantizedPolynomial {
+  repeated uint32 coeffs = 1 [packed = true];
+}
+
+// A full RNS polynomial represented by its quantized coefficient components.
+// This is used for sending the 'b' part of the response.
+message SerializedQuantizedRnsPolynomial {
+  repeated QuantizedPolynomial components = 1;
+}
+
+// A LinPIR response sent from the server to the client.
+// This version contains the 'b' part of the ciphertexts, intended for
+// online transmission. The 'a' part is in the HintlessPirServerPublicParams.
+message LinPirOnlineResponse {
+  message EncryptedInnerProduct {
+    // This uses the new quantized/compressed format.
+    repeated SerializedQuantizedRnsPolynomial ct_b_blocks = 1;
+  }
+
+  repeated EncryptedInnerProduct ct_inner_products = 1;
+}
+
 // A LinPIR response sent from the server to the client.
 message LinPirResponse {
   message EncryptedInnerProduct {
     //repeated rlwe.SerializedRnsRlweCiphertext ct_blocks = 1;原有定义
-      repeated rlwe.SerializedRnsPolynomial ct_b_blocks = 1; // 新的定义
+      repeated rlwe.SerializedRnsPolynomial ct_b_blocks = 1;
+    // 新的定义
   }
 
   repeated EncryptedInnerProduct ct_inner_products = 1;
